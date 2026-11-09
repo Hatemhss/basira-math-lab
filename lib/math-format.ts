@@ -1,0 +1,24 @@
+import {parse} from 'mathjs';
+import katex from 'katex';
+const subs:Record<string,string>={'₀':'0','₁':'1','₂':'2','₃':'3','₄':'4','₅':'5','₆':'6','₇':'7','₈':'8','₉':'9','ᵢ':'i','ⱼ':'j','ₙ':'n','ₐ':'a','ᵦ':'b'};
+const supers:Record<string,string>={'⁰':'0','¹':'1','²':'2','³':'3','⁴':'4','⁵':'5','⁶':'6','⁷':'7','⁸':'8','⁹':'9','ⁿ':'n','ᵗ':'t','ᵇ':'b','⁻':'-','⁺':'+'};
+const tokens:Record<string,string>={'∫':'\\int ','∑':'\\sum ','Σ':'\\sum ','∂':'\\partial ','∞':'\\infty ','π':'\\pi ','θ':'\\theta ','α':'\\alpha ','β':'\\beta ','γ':'\\gamma ','δ':'\\delta ','Δ':'\\Delta ','σ':'\\sigma ','μ':'\\mu ','λ':'\\lambda ','ε':'\\varepsilon ','≈':'\\approx ','≠':'\\ne ','≤':'\\le ','≥':'\\ge ','±':'\\pm ','×':'\\times ','·':'\\cdot ','÷':'\\div ','→':'\\to ','−':'-','′':"'",'ŷ':'\\hat{y}','…':'\\ldots ','°':'^{\\circ}','∈':'\\in ','∉':'\\notin ','ℝ':'\\mathbb{R}','ℕ':'\\mathbb{N}','ℤ':'\\mathbb{Z}','ℂ':'\\mathbb{C}','∪':'\\cup ','∩':'\\cap ','∅':'\\varnothing ','∀':'\\forall ','∃':'\\exists '};
+function mathSegment(raw:string):string {
+ let s=raw.trim();if(!s)return '';
+ // Parse ordinary algebra first, using its syntax tree for stacked fractions and grouped powers.
+ if(!/[\p{Script=Arabic}αβγΔσμπθελ∫Σ∑∂‖′ŷᵢⱼₙ₀₁₂₃₄₅₆₇₈₉ₐ∞→±≈≠≤≥]/u.test(s)&&!s.includes('d/dx')&&!s.includes('dy/dt')&&!s.includes(';')){
+ try{const n=parse(s.replace(/−/g,'-').replace(/×/g,'*').replace(/÷/g,'/').replace(/π/g,'pi').replace(/√(\d+)/g,'sqrt($1)').replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹ⁿᵗᵇ⁻⁺]+/g,m=>'^('+[...m].map(c=>supers[c]).join('')+')'));if(!n.filter((v:any)=>['AssignmentNode','BlockNode','AccessorNode','ObjectNode'].includes(v.type)).length)return n.toTex({parenthesis:'keep',implicit:'hide'});}catch{}
+ }
+ s=s.replace(/\[([\d.\s-]+);([\d.\s-]+)\]/g,(_,a,b)=>'\\begin{bmatrix}'+a.trim().split(/\s+/).join('&')+'\\\\'+b.trim().split(/\s+/).join('&')+'\\end{bmatrix}');
+ s=s.replace(/[₀₁₂₃₄₅₆₇₈₉ᵢⱼₙₐᵦ]+/g,m=>'_{'+[...m].map(c=>subs[c]).join('')+'}').replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹ⁿᵗᵇ⁻⁺]+/g,m=>'^{'+[...m].map(c=>supers[c]).join('')+'}');
+ s=s.replace(/∂([A-Za-z]+)\/∂([A-Za-z]+)/g,'\\frac{\\partial $1}{\\partial $2}').replace(/d\/dx/g,'\\frac{d}{dx}').replace(/dy\/dt/g,'\\frac{dy}{dt}');
+ // Group parenthesized exponent and root operands without losing nested parentheses.
+ function grouped(input:string,marker:string,command:string){let result='';for(let i=0;i<input.length;){if(input.startsWith(marker+'(',i)){let j=i+marker.length+1,depth=1;const start=j;while(j<input.length&&depth){if(input[j]==='(')depth++;if(input[j]===')')depth--;j++;}if(!depth){result+=command+'{'+input.slice(start,j-1)+'}';i=j;continue;}}result+=input[i++];}return result;}
+ s=grouped(s,'^','^');s=grouped(s,'√','\\sqrt');s=grouped(s,'sqrt','\\sqrt');s=s.replace(/√(\d+(?:\.\d+)?|[A-Za-z])/g,'\\sqrt{$1}');
+ s=[...s].map(c=>tokens[c]??c).join('');s=s.replace(/\b(sin|cos|tan|ln|log|exp|arccos|det)\b(?![A-Za-z])/g,(m,_,offset)=>s[offset-1]==='\\'?m:'\\'+m);
+ s=s.replace(/\b(LCM|median|Binomial|rad)\b/g,'\\operatorname{$1}').replace(/S\\infty/g,'S_{\\infty}').replace(/\*/g,'\\cdot ');
+ const norms=s.split('‖');if(norms.length%2===1)s=norms.map((v,i)=>(i===0?'':i%2?'\\lVert ':'\\rVert ')+v).join('');
+ return s;
+}
+export function toLatex(raw:string):string {if(/\\[a-zA-Z]+/.test(raw))return raw.replace(/^\$\$?|\$\$?$/g,'');return raw.split(/(=|≈|→|،|[\p{Script=Arabic}][\p{Script=Arabic}\s]*)/u).map(s=>{if(/[\p{Script=Arabic}]/u.test(s))return '\\text{'+s.replace(/[{}\\]/g,'')+'}';if(s==='،')return '\\quad ';return mathSegment(s)}).join(' ');}
+export function renderMath(raw:string,latex=false){if(raw.length>4000)return {html:'',error:'التعبير طويل جدًا. الحد الأقصى 4000 حرف.'};try{return{html:katex.renderToString(latex?raw:toLatex(raw),{displayMode:true,throwOnError:true,trust:false,strict:'ignore',output:'htmlAndMathml',maxExpand:300,maxSize:15}),error:null}}catch{return{html:'',error:'تعذّر تنسيق الصيغة. تحقق من الأقواس وأوامر LaTeX المدعومة.'}}}
